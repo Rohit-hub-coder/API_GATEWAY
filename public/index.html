@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SkyFlow — Airline Reservation Portal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .pulse-green { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <!-- Top Navigation -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-xl shadow-lg shadow-blue-500/20">
+          ✈️
+        </div>
+        <div>
+          <h1 class="font-bold text-lg leading-tight flex items-center gap-2">
+            SkyFlow Airlines
+            <span class="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">Microservices Demo</span>
+          </h1>
+          <p class="text-xs text-slate-400">Distributed Reservation System • Port 3004</p>
+        </div>
+      </div>
+
+      <!-- System Health Indicator -->
+      <div class="flex items-center gap-4">
+        <div id="systemHealthBadge" class="hidden sm:flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-green"></span>
+          <span>Gateway: Healthy</span>
+        </div>
+        <a href="http://localhost:15672" target="_blank" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1.5 transition">
+          <span>🐰 RabbitMQ UI</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-8 space-y-8">
+    <!-- User Authentication & Session Card -->
+    <section class="bg-gradient-to-r from-slate-900 via-slate-900 to-blue-950 border border-slate-800 rounded-2xl p-6 shadow-xl">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-blue-400">Current Session</span>
+            <span id="authStatusPill" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">Not Authenticated</span>
+          </div>
+          <h2 id="sessionUserLabel" class="text-xl font-bold text-white">Guest Traveler</h2>
+          <p id="sessionUserDesc" class="text-xs text-slate-400">Click Quick Demo Login to automatically create an account, verify email OTP, and receive a JWT token.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="quickLoginBtn" onclick="performQuickLogin()" class="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition shadow-lg shadow-blue-600/25 flex items-center gap-2">
+            <span>⚡ 1-Click Demo Login</span>
+          </button>
+          <button id="logoutBtn" onclick="performLogout()" class="hidden px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-sm transition border border-slate-700">
+            Sign Out
+          </button>
+        </div>
+      </div>
+
+      <!-- Token Banner -->
+      <div id="jwtTokenDisplay" class="hidden mt-4 pt-4 border-t border-slate-800/80 text-xs">
+        <span class="text-slate-400 font-mono">Verified JWT Token: </span>
+        <code id="jwtTokenSnippet" class="text-blue-300 bg-slate-950 px-2 py-0.5 rounded border border-slate-800 select-all font-mono"></code>
+      </div>
+    </section>
+
+    <!-- Main Grid: Flight Catalog + Bookings -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <!-- Flight Catalog (2 Columns) -->
+      <section class="lg:col-span-2 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-bold flex items-center gap-2">
+              <span>✈️ Available Scheduled Flights</span>
+            </h3>
+            <p class="text-xs text-slate-400">Live seat counts queried in real time from Flights & Search Service</p>
+          </div>
+          <button onclick="loadFlights()" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1">
+            <span>🔄 Refresh</span>
+          </button>
+        </div>
+
+        <!-- Flights Container -->
+        <div id="flightsContainer" class="space-y-4">
+          <div class="p-8 text-center text-slate-500 text-sm bg-slate-900/50 rounded-xl border border-slate-800">
+            Loading scheduled flights from API Gateway...
+          </div>
+        </div>
+      </section>
+
+      <!-- User Bookings & System Logs (1 Column) -->
+      <section class="space-y-6">
+        <!-- My Bookings Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <h3 class="font-bold text-sm flex items-center gap-2">
+              <span>🎫 My Active Bookings</span>
+            </h3>
+            <span id="bookingCountBadge" class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">0 Bookings</span>
+          </div>
+
+          <div id="bookingsContainer" class="space-y-3">
+            <p class="text-xs text-slate-500 text-center py-6">
+              No bookings yet. Login and reserve a flight to see your tickets here!
+            </p>
+          </div>
+        </div>
+
+        <!-- System Activity Log Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-3">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <h3 class="font-bold text-sm flex items-center gap-2">
+              <span>📡 Distributed Activity Log</span>
+            </h3>
+            <button onclick="clearLogs()" class="text-[10px] text-slate-500 hover:text-slate-300">Clear</button>
+          </div>
+          <div id="activityLogs" class="space-y-2 text-[11px] font-mono max-h-56 overflow-y-auto pr-1 text-slate-400">
+            <div class="text-slate-500">[System] SkyFlow Dashboard initialized.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const API_BASE = 'http://localhost:3004';
+    let currentUserToken = localStorage.getItem('skyflow_jwt') || null;
+    let currentUserEmail = localStorage.getItem('skyflow_email') || null;
+
+    function logEvent(msg, type = 'info') {
+      const logs = document.getElementById('activityLogs');
+      const time = new Date().toLocaleTimeString();
+      const colors = {
+        info: 'text-slate-400',
+        success: 'text-emerald-400',
+        warn: 'text-amber-400',
+        error: 'text-rose-400'
+      };
+      const div = document.createElement('div');
+      div.className = colors[type] || 'text-slate-400';
+      div.innerHTML = `<span class="text-slate-600">[${time}]</span> ${msg}`;
+      logs.prepend(div);
+    }
+
+    function clearLogs() {
+      document.getElementById('activityLogs').innerHTML = '<div class="text-slate-500">[System] Logs cleared.</div>';
+    }
+
+    function updateAuthUI() {
+      const statusPill = document.getElementById('authStatusPill');
+      const userLabel = document.getElementById('sessionUserLabel');
+      const userDesc = document.getElementById('sessionUserDesc');
+      const quickLoginBtn = document.getElementById('quickLoginBtn');
+      const logoutBtn = document.getElementById('logoutBtn');
+      const tokenDisplay = document.getElementById('jwtTokenDisplay');
+      const tokenSnippet = document.getElementById('jwtTokenSnippet');
+
+      if (currentUserToken && currentUserEmail) {
+        statusPill.className = 'text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        statusPill.textContent = 'Authenticated (JWT Active)';
+        userLabel.textContent = currentUserEmail;
+        userDesc.textContent = 'Ready to reserve seats with distributed consistency and atomic decrement.';
+        quickLoginBtn.classList.add('hidden');
+        logoutBtn.classList.remove('hidden');
+        tokenDisplay.classList.remove('hidden');
+        tokenSnippet.textContent = currentUserToken.substring(0, 40) + '...';
+        loadBookings();
+      } else {
+        statusPill.className = 'text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20';
+        statusPill.textContent = 'Not Authenticated';
+        userLabel.textContent = 'Guest Traveler';
+        userDesc.textContent = 'Click Quick Demo Login to automatically create an account, verify email OTP, and receive a JWT token.';
+        quickLoginBtn.classList.remove('hidden');
+        logoutBtn.classList.add('hidden');
+        tokenDisplay.classList.add('hidden');
+        document.getElementById('bookingsContainer').innerHTML = '<p class="text-xs text-slate-500 text-center py-6">Login to view and manage your bookings.</p>';
+        document.getElementById('bookingCountBadge').textContent = '0 Bookings';
+      }
+    }
+
+    async function performQuickLogin() {
+      const btn = document.getElementById('quickLoginBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span>⏳ Signing In...</span>';
+
+      try {
+        const rand = Math.floor(1000 + Math.random() * 9000);
+        const email = `traveler_${rand}@airline.com`;
+        const password = 'Password123!';
+
+        logEvent(`1. Sending POST /api/v1/auth/signup (${email})`, 'info');
+        const signupRes = await fetch(`${API_BASE}/api/v1/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: `Demo Traveler ${rand}`, email, password })
+        });
+        const signupData = await signupRes.json();
+        const otp = signupData.data?.otp;
+        logEvent(`2. Account created! OTP: ${otp}`, 'success');
+
+        logEvent(`3. Verifying email OTP...`, 'info');
+        await fetch(`${API_BASE}/api/v1/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, otp })
+        });
+
+        logEvent(`4. Signing in & fetching JWT...`, 'info');
+        const signinRes = await fetch(`${API_BASE}/api/v1/auth/signin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const signinData = await signinRes.json();
+        currentUserToken = signinData.data;
+        currentUserEmail = email;
+
+        localStorage.setItem('skyflow_jwt', currentUserToken);
+        localStorage.setItem('skyflow_email', currentUserEmail);
+
+        logEvent(`5. Authenticated successfully as ${email}`, 'success');
+        updateAuthUI();
+      } catch (err) {
+        logEvent(`Auth error: ${err.message}`, 'error');
+        alert('Login failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>⚡ 1-Click Demo Login</span>';
+      }
+    }
+
+    function performLogout() {
+      currentUserToken = null;
+      currentUserEmail = null;
+      localStorage.removeItem('skyflow_jwt');
+      localStorage.removeItem('skyflow_email');
+      logEvent('User signed out.', 'info');
+      updateAuthUI();
+    }
+
+    async function loadFlights() {
+      const container = document.getElementById('flightsContainer');
+      try {
+        logEvent('Fetching flights catalog...', 'info');
+        const res = await fetch(`${API_BASE}/api/v1/flights/flight`);
+        const json = await res.json();
+        const flights = json.data || [];
+
+        if (flights.length === 0) {
+          container.innerHTML = '<div class="p-6 text-center text-slate-500 text-sm">No flights found. Run migration and seeders.</div>';
+          return;
+        }
+
+        container.innerHTML = flights.map(f => {
+          const departure = new Date(f.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const arrival = new Date(f.arrivalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const isSoldOut = f.totalSeats <= 0;
+
+          return `
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition space-y-4">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex flex-col items-center justify-center font-bold text-blue-400">
+                    <span class="text-xs">FLT</span>
+                    <span class="text-sm leading-none">${f.flightNumber}</span>
+                  </div>
+                  <div>
+                    <h4 class="font-bold text-white text-base">Flight #${f.flightNumber}</h4>
+                    <p class="text-xs text-slate-400">Boarding Gate: <span class="text-slate-300 font-medium">${f.boardingGate || 'Gate 2B'}</span></p>
+                  </div>
+                </div>
+
+                <div class="text-right">
+                  <div class="text-xl font-bold text-emerald-400">₹${f.price.toLocaleString()}</div>
+                  <div class="text-xs text-slate-400">per passenger</div>
+                </div>
+              </div>
+
+              <!-- Route & Seat Stats -->
+              <div class="flex items-center justify-between pt-3 border-t border-slate-800/80 text-xs">
+                <div class="flex items-center gap-2">
+                  <span class="font-mono text-slate-300">${departure}</span>
+                  <span class="text-slate-600">➔</span>
+                  <span class="font-mono text-slate-300">${arrival}</span>
+                </div>
+
+                <!-- Seat Counter Pill -->
+                <div class="flex items-center gap-2">
+                  <span class="text-slate-400">Available Inventory:</span>
+                  <span class="px-2.5 py-1 rounded-md font-bold ${isSoldOut ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
+                    ${f.totalSeats} seats
+                  </span>
+                </div>
+              </div>
+
+              <!-- Booking Controls -->
+              <div class="flex items-center justify-end gap-3 pt-2">
+                <div class="flex items-center gap-2">
+                  <label class="text-xs text-slate-400">Qty:</label>
+                  <select id="seatSelect_${f.id}" class="bg-slate-800 border border-slate-700 text-xs rounded-lg px-2 py-1 text-slate-200">
+                    <option value="1">1 Seat</option>
+                    <option value="2" selected>2 Seats</option>
+                    <option value="3">3 Seats</option>
+                    <option value="4">4 Seats</option>
+                  </select>
+                </div>
+                <button onclick="bookFlight(${f.id})" ${isSoldOut ? 'disabled' : ''} class="px-4 py-1.5 rounded-lg text-xs font-semibold ${isSoldOut ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20'} transition">
+                  ${isSoldOut ? 'Sold Out' : 'Book Seats'}
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        container.innerHTML = `<div class="p-6 text-center text-rose-400 text-sm">Failed to connect to Flights Service (${err.message}).</div>`;
+        logEvent(`Flight fetch error: ${err.message}`, 'error');
+      }
+    }
+
+    async function bookFlight(flightId) {
+      if (!currentUserToken) {
+        alert('Please click "1-Click Demo Login" first to authenticate!');
+        return;
+      }
+
+      const seats = parseInt(document.getElementById(`seatSelect_${flightId}`).value, 10);
+      logEvent(`Reserving ${seats} seat(s) on Flight #${flightId}...`, 'info');
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/bookings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentUserToken}`
+          },
+          body: JSON.stringify({ flightId, noOfSeats: seats })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || data.explanation || 'Booking failed');
+        }
+
+        logEvent(`Booking Confirmed! (ID: ${data.data.id}, Total: ₹${data.data.totalCost})`, 'success');
+        logEvent(`Transactional outbox event emitted -> RabbitMQ event queued!`, 'success');
+
+        // Refresh flight seat counters & bookings list
+        await loadFlights();
+        await loadBookings();
+      } catch (err) {
+        logEvent(`Booking failed: ${err.message}`, 'error');
+        alert('Booking error: ' + err.message);
+      }
+    }
+
+    async function loadBookings() {
+      if (!currentUserToken) return;
+      const container = document.getElementById('bookingsContainer');
+      const badge = document.getElementById('bookingCountBadge');
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/bookings`, {
+          headers: { 'Authorization': `Bearer ${currentUserToken}` }
+        });
+        const json = await res.json();
+        const bookings = json.data || [];
+        badge.textContent = `${bookings.length} Booking${bookings.length === 1 ? '' : 's'}`;
+
+        if (bookings.length === 0) {
+          container.innerHTML = '<p class="text-xs text-slate-500 text-center py-6">No bookings found for this account.</p>';
+          return;
+        }
+
+        container.innerHTML = bookings.map(b => {
+          const isCancelled = b.status?.toLowerCase() === 'cancelled';
+          return `
+            <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-slate-200">Booking #${b.id}</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-semibold ${isCancelled ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
+                  ${b.status}
+                </span>
+              </div>
+              <div class="text-slate-400 flex items-center justify-between">
+                <span>Flight ID: ${b.flightId} (${b.noOfSeats} Seats)</span>
+                <span class="text-white font-medium">₹${(b.totalCost || 0).toLocaleString()}</span>
+              </div>
+              ${!isCancelled ? `
+                <div class="pt-1 flex justify-end">
+                  <button onclick="cancelBooking(${b.id})" class="text-[11px] text-rose-400 hover:text-rose-300 font-medium transition">
+                    ✕ Cancel Ticket (Restore Seats)
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        logEvent(`Error fetching bookings: ${err.message}`, 'error');
+      }
+    }
+
+    async function cancelBooking(bookingId) {
+      if (!confirm(`Are you sure you want to cancel booking #${bookingId}?`)) return;
+      logEvent(`Cancelling booking #${bookingId}...`, 'info');
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}/cancel`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${currentUserToken}` }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Cancellation failed');
+
+        logEvent(`Booking #${bookingId} cancelled! Seats restored.`, 'success');
+        await loadFlights();
+        await loadBookings();
+      } catch (err) {
+        logEvent(`Cancellation failed: ${err.message}`, 'error');
+        alert('Cancellation error: ' + err.message);
+      }
+    }
+
+    // Initialize UI on page load
+    updateAuthUI();
+    loadFlights();
+  </script>
+</body>
+</html>

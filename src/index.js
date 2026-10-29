@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { v4: uuidv4 } = require('uuid');
 const axios = require('axios');
+const path = require('path');
 const CircuitBreaker = require('opossum');
 
 const { PORT, AUTH_SERVICE_URL, BOOKING_SERVICE_URL, FLIGHT_SERVICE_URL } = require('./config/serverConfig');
@@ -42,7 +43,8 @@ const writeRateLimiter = rateLimit({
   }
 });
 
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(express.static(path.join(__dirname, '../public')));
 app.use(cors());
 
 // Correlation ID Propagation
@@ -74,6 +76,9 @@ app.use(morgan((tokens, req, res) => JSON.stringify({
 })));
 
 app.get('/', (req, res) => {
+  if (req.headers.accept && req.headers.accept.includes('text/html')) {
+    return res.sendFile(path.join(__dirname, '../public/index.html'));
+  }
   res.status(200).json({
     success: true,
     message: 'Airline Reservation System — API Gateway is Online',
