@@ -73,6 +73,32 @@ app.use(morgan((tokens, req, res) => JSON.stringify({
   userAgent: tokens['user-agent'](req, res)
 })));
 
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Airline Reservation System — API Gateway is Online',
+    version: '1.0.0',
+    architecture: 'Event-Driven Distributed Microservices',
+    endpoints: {
+      aggregateHealth: 'http://localhost:3004/api/v1/health/aggregate',
+      gatewayHealth: 'http://localhost:3004/api/v1/health',
+      flightCatalog: 'http://localhost:3004/api/v1/flights/flight',
+      rabbitMQDashboard: 'http://localhost:15672 (guest / guest)',
+      auth: {
+        signup: 'POST /api/v1/auth/signup',
+        signin: 'POST /api/v1/auth/signin',
+        verifyOtp: 'POST /api/v1/auth/verify-otp'
+      },
+      bookings: {
+        createBooking: 'POST /api/v1/bookings (Auth Bearer Token)',
+        listBookings: 'GET /api/v1/bookings (Auth Bearer Token)',
+        getBookingById: 'GET /api/v1/bookings/:id (Auth Bearer Token)',
+        cancelBooking: 'PATCH /api/v1/bookings/:id/cancel (Auth Bearer Token)'
+      }
+    }
+  });
+});
+
 app.get('/api/v1/health', (req, res) => {
   res.status(200).json({
     success: true,
