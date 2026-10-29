@@ -9,7 +9,7 @@ const axios = require('axios');
 const path = require('path');
 const CircuitBreaker = require('opossum');
 
-const { PORT, AUTH_SERVICE_URL, BOOKING_SERVICE_URL, FLIGHT_SERVICE_URL } = require('./config/serverConfig');
+const { PORT, AUTH_SERVICE_URL, BOOKING_SERVICE_URL, FLIGHT_SERVICE_URL, REMINDER_SERVICE_URL, RABBITMQ_MANAGEMENT_URL, RABBITMQ_USER, RABBITMQ_PASS } = require('./config/serverConfig');
 const { logger } = require('./utils/logger');
 const verifyToken = require('./middlewares/auth-middleware');
 
@@ -120,27 +120,112 @@ app.get('/api/v1/health/aggregate', async (req, res) => {
   const services = [
     { name: 'auth', url: `${AUTH_SERVICE_URL}/api/v1/health` },
     { name: 'bookings', url: `${BOOKING_SERVICE_URL}/api/v1/health` },
-    { name: 'flights', url: `${FLIGHT_SERVICE_URL}/api/v1/health` }
+    { name: 'flights', url: `${FLIGHT_SERVICE_URL}/api/v1/health` },
+    { name: 'reminder', url: `${REMINDER_SERVICE_URL}/api/v1/health` }
   ];
   
   const results = await Promise.allSettled(
-    services.map(s => axios.get(s.url, { 
-        headers: { 'x-request-id': req.headers['x-request-id'] },
-        timeout: 2000 
-    }))
+    services.map(async s => {
+      const headers = {};
+      if (req.headers['x-request-id']) {
+        headers['x-request-id'] = req.headers['x-request-id'];
+      }
+      const start = Date.now();
+      await axios.get(s.url, { headers, timeout: 2000 });
+      return { latencyMs: Date.now() - start };
+    })
   );
   
   const responseData = {};
+  const latencyData = {};
   results.forEach((r, i) => {
-    responseData[services[i].name] = r.status === 'fulfilled' ? 'up' : 'down';
+    const sName = services[i].name;
+    responseData[sName] = r.status === 'fulfilled' ? 'up' : 'down';
+    latencyData[sName] = r.status === 'fulfilled' && r.value ? r.value.latencyMs : null;
   });
   
   res.status(200).json({
     success: true,
     message: 'Aggregated health status',
     data: responseData,
+    latencyMs: latencyData,
     err: {}
   });
+});
+
+app.get('/api/v1/rabbitmq/status', async (req, res) => {
+  try {
+    const authHeader = 'Basic ' + Buffer.from(`${RABBITMQ_USER}:${RABBITMQ_PASS}`).toString('base64');
+    const headers = { 'Authorization': authHeader };
+    if (req.headers['x-request-id']) {
+      headers['x-request-id'] = req.headers['x-request-id'];
+    }
+
+    const start = Date.now();
+    const response = await axios.get(`${RABBITMQ_MANAGEMENT_URL}/api/queues`, {
+      headers,
+      timeout: 3000
+    });
+    const latencyMs = Date.now() - start;
+
+    const queues = Array.isArray(response.data) ? response.data : [];
+    const reminderQueue = queues.find(q => q.name === 'REMINDER_QUEUE');
+
+    if (!reminderQueue) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          name: 'REMINDER_QUEUE',
+          messages_ready: 'n/a',
+          consumers: 'n/a',
+          published: 'n/a',
+          delivered: 'n/a',
+          acknowledged: 'n/a'
+        },
+        latencyMs,
+        message: 'REMINDER_QUEUE not found in broker',
+        err: {}
+      });
+    }
+
+    const stats = {
+      name: reminderQueue.name,
+      messages_ready: typeof reminderQueue.messages_ready === 'number' ? reminderQueue.messages_ready : 'n/a',
+      consumers: typeof reminderQueue.consumers === 'number' ? reminderQueue.consumers : 'n/a',
+      published: reminderQueue.message_stats && typeof reminderQueue.message_stats.publish === 'number' 
+        ? reminderQueue.message_stats.publish 
+        : 'n/a',
+      delivered: reminderQueue.message_stats && typeof reminderQueue.message_stats.deliver_get === 'number' 
+        ? reminderQueue.message_stats.deliver_get 
+        : 'n/a',
+      acknowledged: reminderQueue.message_stats && typeof reminderQueue.message_stats.ack === 'number' 
+        ? reminderQueue.message_stats.ack 
+        : 'n/a'
+    };
+
+    return res.status(200).json({
+      success: true,
+      data: stats,
+      latencyMs,
+      message: 'Successfully fetched RabbitMQ queue statistics',
+      err: {}
+    });
+  } catch (error) {
+    logger.error('RabbitMQ status proxy error', { error: error.message });
+    return res.status(502).json({
+      success: false,
+      message: 'Failed to query RabbitMQ management API',
+      data: {
+        name: 'REMINDER_QUEUE',
+        messages_ready: 'n/a',
+        consumers: 'n/a',
+        published: 'n/a',
+        delivered: 'n/a',
+        acknowledged: 'n/a'
+      },
+      err: error.message
+    });
+  }
 });
 
 const authProxy = createProxyMiddleware({
